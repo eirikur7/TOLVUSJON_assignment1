@@ -1,0 +1,5 @@
+.opencv/
+.venv/
+__pycache__/
+*.pyc
+description.md
