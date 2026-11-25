@@ -1,154 +1,96 @@
-# Assignment 1: Real-time bright and red spot detection
+# Assignment 1: Real-time bright spot detection
+Github: https://github.com/eirikur7/TOLVUSJON_assignment1.git
 
-Live video from the laptop camera with OpenCV and Python: show FPS, mark the brightest spot and the reddest spot, compare three ways of finding the brightest spot, and measure latency.
-
-All numbers below come from my own runs. Raw data: the CSV files in `results/`. Plots: `results/plots/`, made by `analysis.ipynb`.
-
----
-
-## Setup
-
-| | |
-|---|---|
-| Computer | Windows laptop, built-in camera |
-| Software | Python 3.14, OpenCV (`opencv-python`), NumPy |
-| Camera backend | MSMF (OpenCV's default on Windows), reports 30 fps |
-| Image size | 640 × 480 |
-| Runs | 300 frames each, first 5 frames skipped when averaging |
+All numbers come from my own runs. Raw logs are the CSV files in `results/`, plots are made in `analysis.ipynb`.
 
 **Code**
+- `main.py`: the live loop (read frame → process → display).
+- `helpers/image_location_detectors.py`: brightest and reddest spot detectors.
+- `helpers/image_manipulation.py`: colour conversion and drawing boxes.
 
-- `main.py`: the live loop: get frame → process frame → show frame.
-- `helpers/image_location_detectors.py`: functions that find a location (brightest, reddest). Each returns `(x, y)` and the value there.
-- `helpers/image_manipulation.py`: colour conversion and drawing a box.
-- Each version in the results table was run by commenting lines in or out of `main.py`.
+Each version in the results table was run by commenting lines in or out of `main.py`.
 
----
+## Tasks 1-2: Live video and FPS
 
-## Tasks 1–2: Live video and FPS
+Frames are read with `cv2.VideoCapture` and shown with `cv2.imshow`. FPS is $1/\Delta t$, where $\Delta t$ is the time since the previous frame (`time.perf_counter()`), and it is drawn on the frame with `cv2.putText`.
 
-The frame is read with `cv2.VideoCapture`, shown with `cv2.imshow`, and the loop stops on `q`.
-
-FPS is measured as `1 / (time since the previous frame)`, using `time.perf_counter()`, and drawn on the frame with `cv2.putText`.
-
-### Observation: the loop runs faster than the camera
-
-The first FPS readings were around **300 fps**, which is impossible for a 30 fps camera. Looking at the loop pass by pass shows why:
+The first readings showed around 300 fps, which is not possible for a 30 fps camera. Timing each loop pass shows a repeating pattern of two fast passes (~2 ms) and one long one (~95 ms):
 
 ![Loop-pass pattern](plots/2_loop_pass_pattern.png)
 
-- The pattern repeats: **two fast passes (~2 ms), then one long wait (~95 ms)**.
-- Printing the frames showed groups of **identical frames**.
-- So `camera.read()` often returns the *same* image again instead of waiting for a new one. The fast passes are duplicates.
-
-**Conclusion:** FPS of the loop is not the same as the rate of new images. The average still comes out at 33.3 ms per frame (30 fps), so the camera sets the pace.
-
----
+The fast passes return the same frame again, so the loop runs faster than the camera delivers new images. The mean time per frame is still 33.3 ms (30 fps), so the camera sets the pace. The table below therefore uses the mean.
 
 ## Task 3: Brightest spot
 
-1. Convert the frame to grayscale (`cv2.cvtColor`, `COLOR_BGR2GRAY`).
-2. Find the location of the maximum with `cv2.minMaxLoc`.
-3. Draw a box there.
+The frame is converted to grayscale (`cv2.cvtColor`) and the location of the maximum is found with `cv2.minMaxLoc`. A blue box is drawn there.
 
----
+## Task 4: Reddest spot
 
-## Task 4: Reddest spot, two definitions
+Two definitions of redness were used, and the reddest spot is the maximum of each (`cv2.minMaxLoc`).
 
-| | Colour space | "Redness" of a pixel |
-|---|---|---|
-| **A** | BGR | $R - \frac{G+B}{2}$: how much more red than the other two channels |
-| **B** | L\*a\*b\* | the **a\*** channel: position on the green ↔ red/magenta axis |
+| | Colour space | Redness | Box |
+|---|---|---|---|
+| A | BGR | $R - \frac{G+B}{2}$ | yellow |
+| B | L\*a\*b\* | a\* channel (green ↔ red axis) | magenta |
 
-For both, the reddest spot is the location of the maximum redness (`cv2.minMaxLoc`).
+Colour of the pixel each detector picked, frame by frame (run with all detectors on):
 
-### What each definition picks
+![Detected colours](plots/4b_all_colours.png)
 
-The colour of the pixel each definition picked, frame by frame:
+Both pick dark reds. Definition A leans towards brown/orange shades, while B leans towards wine-red shades with a bit of purple, since a\* is also high for colours with blue in them.
 
-![Reddest colours](plots/4a_reddest_colours.png)
+Frame where the two definitions disagree (yellow = A, magenta = B, blue = brightest):
 
-![All detections](plots/4b_all_colours.png)
+![Red mismatch](screenshot_red_mismatch.png)
 
-![Disagreement](plots/5_red_disagreement.png)
+**Choice:** I chose definition A (BGR). It subtracts both green and blue, so it rewards pixels that are clearly red rather than purple. Its weakness is that it depends on brightness, so a brightly lit red scores higher than the same red in shadow.
 
-- In the reddest-only run they point at different places (more than 20 px apart) in **26 %** of frames. In the combined run it is **85 %**.
-- **BGR** picks **dark, deep red/brown** pixels.
-- **Lab a\*** often picks **pink/magenta** pixels. That is because a\* is high for anything on the red–magenta side, including colours with a lot of blue.
+## Task 5: Three implementations of the brightest spot
 
-*(TODO: add one screenshot of a frame where the two boxes disagree.)*
+Time of the detector call only:
 
-### Which definition I chose and why
-
-*(Draft, edit to your own words.)*
-I chose **definition A (BGR, $R - \frac{G+B}{2}$)**. It subtracts blue as well as green, so it rewards pixels that are *red* and not pink or purple. Lab a\* is perceptually better founded, but it treats magenta as "red", which is what made it disagree in most frames.
-The downside of A is that it depends on brightness: a brightly lit red scores higher than the same red in shadow. A fix would be to divide by brightness, or use hue and saturation in HSV.
-
----
-
-## Task 5: Brightest spot, three implementations
-
-Time of **only the detector call**, measured with `time.perf_counter()` around it:
-
-| Method | Mean time [ms] | Compared with OpenCV | Overall FPS |
+| Method | Mean time [ms] | vs. OpenCV | FPS |
 |---|---|---|---|
 | OpenCV `cv2.minMaxLoc` | 0.036 | 1× | 30.0 |
-| NumPy `np.argmax` + `np.unravel_index` | 0.079 | ~2× slower | 30.0 |
-| Python double for-loop | 32.5 | **~900× slower** | **25.8** |
+| NumPy `np.argmax` | 0.079 | ~2× | 30.0 |
+| Python double for-loop | 32.5 | ~900× | 25.8 |
 
-![Brightest methods](plots/3_brightest_methods.png)
-
-- OpenCV and NumPy are both far below the camera's 33 ms per frame, so they do not change the FPS at all.
-- The loop takes ~32 ms per frame. That alone is about one camera frame, so FPS drops to 25.8.
-- Why: OpenCV and NumPy run compiled, vectorised code over the whole array. The Python loop runs the interpreter once per pixel (~300 000 times per frame).
-
----
+OpenCV and NumPy run compiled code over the whole array and are far below the 33 ms frame time, so they do not affect the FPS. The Python loop goes through ~300 000 pixels one at a time, which takes about one full frame and drops the FPS to 25.8.
 
 ## Results table (laptop camera)
 
-| Version | Mean time per frame [ms] | FPS | Median loop pass [ms] |
-|---|---|---|---|
-| No detection, display | 33.3 | 30.0 | 3.65 |
-| Brightest, display | 33.3 | 30.0 | 3.88 |
-| Reddest, display | 33.3 | 30.0 | 7.19 |
-| No detection, no display | 33.3 | 30.0 | 2.19 |
-| Brightest, no display | 33.3 | 30.0 | 2.09 |
-| Reddest, no display | 33.3 | 30.0 | 5.20 |
+| Version | Time per frame [ms] | FPS |
+|---|---|---|
+| No detection, display | 33.3 | 30.0 |
+| Brightest, display | 33.3 | 30.0 |
+| Reddest, display | 33.3 | 30.0 |
+| No detection, no display | 33.3 | 30.0 |
+| Brightest, no display | 33.3 | 30.0 |
+| Reddest, no display | 33.3 | 30.0 |
 
-![Time per frame](plots/1_time_per_frame.png)
-
-**How to read it:**
-
-- **Mean** = what you actually get. It is the same (30 fps) in every version, because the loop waits for the camera.
-- **Median** = cost of one loop pass (most passes are the fast duplicate reads). Differences in the median show what each part costs:
-  - display (`imshow` + `waitKey`): ≈ 1.5 ms
-  - brightest spot: too small to measure here
-  - reddest spot (both definitions): ≈ 3–3.5 ms, mostly the Lab conversion and the int16 copy
-
----
+All versions run at the camera's 30 fps, since the detections and display are much faster than the time between new frames. Only the Python loop (task 5) is slow enough to lower the FPS.
 
 ## Task 6: Phone camera
 
-*(TODO: app used (DroidCam / iVCam), connection (Wi-Fi / hotspot), camera index, and the FPS from one run.)*
+The phone streams over Wi-Fi with the DroidCam app, and OpenCV reads the stream from its URL (`http://<phone-ip>:4747/video`). The phone sends 1280 × 720 frames, compared with 640 × 480 from the laptop camera.
 
----
+The FPS was not consistent. In some runs it was only 5-10 fps, and after restarting it could jump up to 25-30 fps. Likely causes are the Wi-Fi connection and my laptop, which is old and has been slow lately.
 
 ## Task 7: Latency
 
-Method: a running millisecond timer on screen, camera pointed at it, screenshot showing both the timer and the displayed video frame. Latency = timer value − value visible in the video.
+A millisecond stopwatch was shown next to the video window, with the camera pointed at it. Latency = real time − time shown in the video.
 
-| Camera | Run 1 [ms] | Run 2 [ms] | Run 3 [ms] | Mean [ms] |
-|---|---|---|---|---|
-| Laptop | TODO | TODO | TODO | TODO |
-| Phone | TODO | TODO | TODO | TODO |
+| # | Laptop camera [ms] | Phone camera [ms] |
+|---|---|---|
+| 1 | 110 | 550 |
+| 2 | 190 | 1200 |
+| 3 | 170 | 420 |
+| **Mean** | **≈ 160** | **≈ 720** |
 
-*(TODO: add the screenshots.)*
+![Phone latency](phone1.png)
 
----
+![Laptop latency](latency_laptop_camera_1.jpg)
 
-## Summary
+The phone is about 4-5× slower and much less consistent. The extra delay comes from compressing the video on the phone, sending it over Wi-Fi and decoding it on the laptop. The laptop readings are uncertain by about ±20 ms, since some digits were caught mid-change.
 
-- The camera's 30 fps limits everything except the Python loop.
-- Loop FPS ≠ camera FPS: OpenCV's MSMF backend returns duplicate frames, so "300 fps" was the loop spinning, not new images.
-- OpenCV and NumPy find the brightest pixel in well under 0.1 ms. A Python double loop takes ~32 ms (~900× slower).
-- "Reddest" depends on the definition. BGR $R - \frac{G+B}{2}$ finds deep red, Lab a\* also rewards pink/magenta.
+All screenshots: `phone1-3.png`, `latency_laptop_camera_1-3.jpg`.

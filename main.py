@@ -8,6 +8,7 @@ from helpers import image_manipulation as manip
 
 # ----- CONSTANTS ----- #
 CAMERA_INDEX = 0  # laptop camera
+# CAMERA_INDEX = "http://192.168.2.121:4747/video"  # phone (DroidCam)
 BRIGHTEST_METHOD = "opencv"  # "opencv", "numpy" or "loop"
 
 
@@ -60,7 +61,7 @@ def process_frame(frame):
     red_rgb_bgr = pixel_hex(frame, red_point_bgr)
     red_rgb_lab = pixel_hex(frame, red_point_lab)
     
-    # Draw boxes: brightest = blue, reddest BGR = green, reddest Lab = yellow
+    # Draw boxes: brightest = blue, reddest BGR = yellow, reddest Lab = magenta
     manip.draw_box(frame, bright_point)
     manip.draw_box(frame, red_point_bgr, color=(0, 255, 255))
     manip.draw_box(frame, red_point_lab, color=(255, 0, 255))
@@ -141,7 +142,7 @@ def main():
     cv2.destroyAllWindows()
     
     # Save results
-    save_data(f"02_brightest_reddest_spots_{BRIGHTEST_METHOD}.csv", measurements)
+    save_data(f"12_phone.csv", measurements)
 
 
 if __name__ == "__main__":
